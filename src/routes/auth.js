@@ -43,4 +43,40 @@ router.post('/register', async (req, res) => {
     }
 });
 
+//user login 
+router.post('/login', async (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return res.status(400).json({ error: 'Email and Password are required' });
+    }
+
+    try {
+        const stmt = db.prepare('SELECT id, email, password_hash FROM users WHERE email = ?');
+        const user = stmt.get(email);
+
+        if (!user) {
+            return res.status(401).json({ error: 'Invalid Email or password' });
+        }
+        //aysnc password verification
+        const isMatch = await bcrypt.compare(password, user.password_hash);
+        if (!isMatch) {
+            return res.status(401).json({ error: 'Invalid Email or Password' });
+        }
+        //generating JWT token 
+        const token = jwt.sign(
+            { id: user.id, email: user.email },
+            JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+        res.json({
+            message: 'Login Successfull',
+            token
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 module.exports = router;
