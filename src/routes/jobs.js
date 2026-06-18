@@ -157,5 +157,38 @@ router.get('/:id/logs', (req, res) => {
     }
 });
 
+//pause an active job
+
+router.patch('/:id/pause', (req, res) => {
+    const userId = req.user.id;
+    const jobId = Number(req.params.id);
+
+    if (!Number.isInteger(jobId)) {
+        return res.status(400).json({ errpr: 'jon ID must be a valid integer' });
+    }
+
+    try {
+        const job = db.prepare('SELECT status FROM jobs Where id = ? AND user_id = ?').get(jobId, userId);
+        if (!job) {
+            return res.status(404).json({ error: 'Job not found or unauthorized' });
+        }
+
+        if (job.status === 'completed' || job.status === 'failed') {
+            return res.status(400).json({ error: `Cannot pause a job that is already ${job.status}` });
+        }
+
+        db.prepare(`
+            UPDATE jobs
+            SET status = 'paused', updated_at = CURRENT_TIMESTAMP
+            Where id = ? AND user_id = ?
+        `).run(jobId, userId);
+
+        res.json({ message: 'Job paused successfully' });
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error' });
+
+    }
+});
+
 
 module.exports = router;
