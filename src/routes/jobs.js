@@ -93,4 +93,69 @@ router.post('/', (req, res) => {
     }
 });
 
+//list all jobs belonging to the authenticated user
+
+router.get('/', (req, res) => {
+    const userId = req.user.id;
+
+    try {
+        const stmt = db.prepare(`
+            SELECT id, name, url, method, headers, payload, schedule_type,
+                   schedule_value, next_run_at, status, failure_count, last_error,
+                   created_at, updated_at
+            FROM jobs
+            WHERE user_id = ?
+            ORDER BY created_at DESC       
+        `);
+        const jobs = stmt.all(userId);
+
+        //parse JSON strings back to objects for client response
+        const parsedJobs = jobs.map(job => ({
+            ...job,
+            headers: job.headers ? JSON.parse(job.headers) : null,
+            payload: job.payload ? JSON.parse(job.payload) : null
+        }));
+
+        res.json(parsedJobs);
+
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+//get execution longs for a specific job 
+router.get('/:id/logs', (req, res) => {
+    const userId = req.user.id;
+    const jobId = Number(req.params.id);
+
+    //validate that the id is a valid integer
+    if (!Number.isInteger(jobId)) {
+        return res.status(400).json({ error: 'job ID must be a valid integer' });
+    }
+
+    try {
+        //Ensure the job exists AND belongs to the logged-in user
+        const jobCheck = db.prepare('SELECT id FROM jobs WHERE id = ? AND user_id = ?').get(jobId, userId);
+        if (!jobCheck) {
+            return res.status(404).json({ error: 'Job not found or unauthorized.' });
+        }
+
+        //retrieve the logs
+        const stmt = db.prepare(`
+            SELECT id, job_id, attempt_number, executed_at,
+                    status_code, response_time_ms, response_body, error_message
+            FROM job_logs
+            WHERE job_id = ?
+            ORDER BY executed_at DESC    
+        `);
+
+        const logs = stmt.all(jobId);
+        res.json(logs);
+
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+
 module.exports = router;
