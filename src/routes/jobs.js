@@ -164,29 +164,109 @@ router.patch('/:id/pause', (req, res) => {
     const jobId = Number(req.params.id);
 
     if (!Number.isInteger(jobId)) {
-        return res.status(400).json({ errpr: 'jon ID must be a valid integer' });
+        return res.status(400).json({
+            error: 'Job ID must be a valid integer'
+        });
     }
 
     try {
-        const job = db.prepare('SELECT status FROM jobs Where id = ? AND user_id = ?').get(jobId, userId);
+        const job = db.prepare('SELECT status FROM jobs WHERE id = ? AND user_id = ?').get(jobId, userId);
         if (!job) {
-            return res.status(404).json({ error: 'Job not found or unauthorized' });
+            return res.status(404).json({
+                error: 'Job not found or unauthorized'
+            });
         }
 
         if (job.status === 'completed' || job.status === 'failed') {
-            return res.status(400).json({ error: `Cannot pause a job that is already ${job.status}` });
+            return res.status(400).json({
+                error: `Cannot pause a job that is already ${job.status}`
+            });
+        }
+
+        if (job.status === 'paused') {
+            return res.status(400).json({
+                error: 'Job is already paused'
+            });
         }
 
         db.prepare(`
             UPDATE jobs
             SET status = 'paused', updated_at = CURRENT_TIMESTAMP
-            Where id = ? AND user_id = ?
+            WHERE id = ? AND user_id = ?
         `).run(jobId, userId);
 
         res.json({ message: 'Job paused successfully' });
-    } catch (error) {
-        res.status(500).json({ error: 'Internal server error' });
 
+    } catch (error) {
+        res.status(500).json({
+            error: 'Internal server error'
+        });
+
+    }
+});
+
+//resume a paused job
+router.patch('/:id/resume', (req, res) => {
+    const userId = req.user.id;
+    const jobId = Number(req.params.id);
+
+    if (!Number.isInteger(jobId)) {
+        return res.status(400).json({ error: 'job ID must be a valid integer' });
+    }
+
+    try {
+        const job = db.prepare('SELECT status, schedule_value FROM jobs WHERE id = ? AND user_id = ?').get(jobId, userId);
+
+        if (!job) {
+            return res.status(404).json({ error: 'Job not found or unauthorized' });
+        }
+
+        if (job.status !== 'paused') {
+            return res.status(400).json({ error: 'Only paused jobs can be resumed' });
+        }
+
+        //recalculating the next execution time relative to now
+        const nextRunAt = Date.now() + (job.schedule_value * 1000);
+
+        //update the job to pending and set the new next run time
+        db.prepare(`
+            UPDATE jobs
+            SET status = 'pending',
+            next_run_at = ?,
+            failure_count = 0,
+            last_error = null,
+            updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND user_id = ?
+        `).run(nextRunAt, jobId, userId);
+
+        res.json({ message: 'job resumed successfully', next_run_at: nextRunAt });
+    } catch (error) {
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+//cancel and delete a job
+router.delete('/:id', (req, res) => {
+    const userId = req.user.id;
+    const jobId = Number(req.params.id);
+
+    if (!Number.isInteger(jobId)) {
+        return res.status(400).json({ error: 'job ID must be a valid integer' });
+    }
+
+    try {
+        const jobCheck = db.prepare('SELECT id FROM jobs WHERE id = ? AND user_id = ?').get(jobId, userId);
+
+        if (!jobCheck) {
+            return res.status(404).json({ error: 'Job not found or unauthorized.' });
+        }
+
+        db.prepare('DELETE FROM jobs WHERE id = ? AND user_id = ?').run(jobId, userId);
+
+        res.json({ message: 'Job deleted successfully' });
+
+    } catch (error) {
+        return res.status(500).json({ error: 'Internal server error' });
     }
 });
 
